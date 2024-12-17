@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """
 RSS -> Fediverse gateway
 
@@ -21,10 +23,39 @@ from PIL import ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 import html
 import magic
+import argparse
+import os
+import html
+import sys
+
+def read_timefile(timefile: str) -> int:
+    if os.path.exists(timefile):
+        with open(timefile, "rb") as f:
+            raw_val = f.read()
+            try:
+                return int(raw_val, 10)
+            except ValueError:
+                print("Read garbage from the time file:", raw_val)
+                return 0
+    return 0
+def write_timefile(timefile: str, spottime: int) -> None:
+    with open(timefile, "w") as f:
+        f.write(str(int(spottime)))
+
 
 # Load the config
 config = configparser.ConfigParser()
-config.read('config.ini')
+parser = argparse.ArgumentParser()
+parser.add_argument("--config", help="Config file", dest="config_file", default="config.ini")
+parser.add_argument("--timefile", help="Timestamp file", dest="timefile", default=None)
+parser.add_argument("--dryrun", help="Dry run, do not post anything", dest="dryrun", action="store_true")
+args = parser.parse_args()
+
+if not os.path.exists(args.config_file):
+   print("No config file found")
+   parser.print_usage()
+   sys.exit()
+config.read(args.config_file)
 
 feedurl = config['feed']['feed_url']
 feedname = config['feed']['feed_name']
@@ -58,7 +89,14 @@ mastodonBot = Mastodon(
 print ("Starting RSS watcher:" + feedname)
 lastpost = ""
 maxspottime = 0
-lastspottime = datetime.now().timestamp()
+lastspottime = 0
+if args.timefile:
+    print(f"Using {args.timefile} as starting time")
+    lastspottime = read_timefile(args.timefile)
+    print(f"Read {lastspottime}")
+else:
+    lastspottime = datetime.now().timestamp()
+    print(f"No timefile, using {lastspottime} as starting time")
 while(1):
    try:
     data = (feedparser.parse(feedurl))
@@ -121,12 +159,16 @@ while(1):
                     shutil.copyfileobj(res.raw, temp)
                     print('Image sucessfully Downloaded')
                     print (temp.name)
-                    try:
-                      mediaid = mastodonBot.media_post(temp.name, mime_type="video/mp4")
-                      medialist.append(mediaid)
-                    except Exception as e:
-                      print (e)
-                      print ("Unable to upload video")
+                    if(False == args.dryrun):
+                      try:
+                        mediaid = mastodonBot.media_post(temp.name, mime_type="video/mp4")
+                        medialist.append(mediaid)
+                      except Exception as e:
+                        print (e)
+                        print ("Unable to upload video")
+                    else:
+                      print("Dry run: Not posting media from", temp.name)
+
                 else:
                        print('Video Couldn\'t be retrieved')
                 temp.close()
@@ -153,23 +195,35 @@ while(1):
                         image = image.resize((newx,newy))
                         print ("new image size",image.size)
                         image.save(temp, format="png")
-                    try:
-                       mediaid = mastodonBot.media_post(temp.name, mime_type="image/png")
-                       medialist.append(mediaid)
-                    except Exception as e:
-                       print ("Unable to upload image.")
-                       print (e)
+                    if(False == args.dryrun):
+                     try:
+                        mediaid = mastodonBot.media_post(temp.name, mime_type="image/png")
+                        medialist.append(mediaid)
+                     except Exception as e:
+                        print ("Unable to upload image.")
+                        print (e)
+                    else:
+                      print("Dry run: Not posting media from", temp.name)
                 else:
                        print('Image Couldn\'t be retrieved')
                 temp.close()
               if (isposted == False):
-                   try:
-                       postedToot = mastodonBot.status_post(tootText,None,medialist,False,feedvisibility)
-                       lastpost = postedToot
-                   except Exception as e:
-                       print(e)
+                   if(False == args.dryrun):
+                     try:
+                        postedToot = mastodonBot.status_post(tootText,None,medialist,False,feedvisibility)
+                        lastpost = postedToot
+                     except Exception as e:
+                        print(e)
+                   else:
+                     print("Dry run: Not posting toot text:", tootText)
+                     print("Dry run: Not posting toot media:", medialist)
+         else:
+            print("not posting", entry['title'], spottime)
                     
     lastspottime = maxspottime #set last update to the newest update we saw in the list
+    if(args.timefile and (not args.dryrun)):
+        print(f"Writing {lastspottime} to timefile")
+        write_timefile(args.timefile, lastspottime)
     #print("debug: lastspottime now ",lastspottime)
    except Exception as e:
       print (e) 
