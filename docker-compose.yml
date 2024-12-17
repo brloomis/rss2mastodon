@@ -1,0 +1,8 @@
+services:
+  sdccblog:
+    image: rss2mastodon
+    command: --config /etc/rss2mastodon/config.ini --timefile /var/run/rss2mastodon/time.txt
+    volumes:
+      - ./config.ini:/etc/rss2mastodon/config.ini:Z
+      - ./time.txt:/var/run/rss2mastodon/time.txt:Z
+    entrypoint: /opt/rss2mastodon/rss2mastodon.py
